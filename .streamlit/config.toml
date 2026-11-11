@@ -1,0 +1,5 @@
+# Sin seccion [theme]: Streamlit sigue el modo claro/oscuro del sistema.
+
+[client]
+# Menos elementos propios de Streamlit (como el boton Deploy) al cargar la pagina.
+toolbarMode = "minimal"

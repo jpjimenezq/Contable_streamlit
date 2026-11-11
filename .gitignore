@@ -1,0 +1,6 @@
+.streamlit/secrets.toml
+.streamlit/credenciales_local.txt
+.venv/
+__pycache__/
+*.pyc
+.venv
