@@ -512,19 +512,19 @@ def ejecutar_traslado_doble(
 # ─────────────────────────────────────────────────────────────────────────────
 # UI
 # ─────────────────────────────────────────────────────────────────────────────
-page_header('Traslado de Nómina — 3.3 → 3.2', '<b>Bloque 1:</b> hoja DATOS → todas las filas del 3.2 &nbsp;|&nbsp; <b>Bloque 2:</b> hoja Nomina resumen → filas SN &nbsp;|&nbsp; <b>Vr Débito/Crédito</b> extendidos a todas las filas', 'clipboard-list')
+page_header('Traslado de Nómina — Sumario → Plantilla', '<b>Bloque 1:</b> hoja DATOS → todas las filas del 3.2 &nbsp;|&nbsp; <b>Bloque 2:</b> hoja Nomina resumen → filas SN &nbsp;|&nbsp; <b>Vr Débito/Crédito</b> extendidos a todas las filas', 'clipboard-list')
 
 md("---")
 
 col1, col2 = st.columns(2)
 with col1:
-    md('<p class="section-title">[[file-text]] Archivo 3.3 — Fuente</p>',
+    md('<p class="section-title">[[file-text]] Sumario nómina</p>',
                 unsafe_allow_html=True)
     st.caption("Se leerán las hojas **DATOS** y **Nomina resumen**")
     f33 = st.file_uploader("33", type=["xlsx", "xls"], key="u33",
                            label_visibility="collapsed")
 with col2:
-    md('<p class="section-title">[[bar-chart]] Archivo 3.2 — Destino (hoja NÓMINA)</p>',
+    md('<p class="section-title">[[bar-chart]] Plantilla nómina</p>',
                 unsafe_allow_html=True)
     st.caption("Bloque 1: todas las filas · Bloque 2: filas con COD_DINA = SN")
     f32 = st.file_uploader("32", type=["xlsx", "xls"], key="u32",

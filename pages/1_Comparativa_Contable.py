@@ -21,6 +21,49 @@ from datetime import datetime
 
 # ── Funciones ────────────────────────────────────────────────────────────────
 
+def _letra_columna(i: int) -> str:
+    """Índice 0 → A, 1 → B, … 8 → I."""
+    s, i = "", i + 1
+    while i:
+        i, r = divmod(i - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def detectar_columnas_extracto(df):
+    """Devuelve (índice de la columna de montos, índice de la columna de descripción).
+
+    1) Si la columna I (formato clásico) trae montos distintos de cero, se usa esa y la G.
+    2) Si no, se elige entre las columnas numéricas la que parece de montos: con negativos o
+       centavos (las fechas, los códigos y el número de cuenta no los tienen) y con más valores
+       distintos. La descripción es la columna de texto con más textos distintos.
+    """
+    num = {c: pd.to_numeric(df[c], errors="coerce") for c in df.columns}
+    n = len(df)
+
+    if 8 in df.columns and (num[8].fillna(0) != 0).sum() >= max(1, n // 2):
+        return 8, (6 if 6 in df.columns else None)
+
+    mejor, mejor_score = None, None
+    for c, serie in num.items():
+        validos = serie.dropna()
+        if len(validos) < max(1, int(n * 0.8)) or validos.nunique() < 2:
+            continue
+        marca = float(((validos < 0) | (validos % 1 != 0)).mean())
+        score = (marca > 0, validos.nunique())
+        if mejor_score is None or score > mejor_score:
+            mejor, mejor_score = c, score
+
+    mejor_desc, mejor_n = None, 0
+    for c in df.columns:
+        if c == mejor or num[c].notna().mean() > 0.5:
+            continue
+        distintos = df[c].dropna().astype(str).str.strip().nunique()
+        if distintos > mejor_n:
+            mejor_desc, mejor_n = c, distintos
+    return mejor, mejor_desc
+
+
 def cargar_extracto(archivo) -> tuple:
     """
     Lee el extracto bancario (CSV, TXT o Excel).
@@ -51,22 +94,29 @@ def cargar_extracto(archivo) -> tuple:
             except Exception:
                 continue
 
-    if df is None or df.shape[1] < 9:
+    if df is None or df.shape[1] < 3:
         st.error(
-            f"El archivo no tiene suficientes columnas (se necesitan al menos 9). "
+            f"El archivo no tiene suficientes columnas. "
             f"Columnas detectadas: {df.shape[1] if df is not None else 0}"
         )
         return None, None
 
+    # Cada banco ordena las columnas distinto: se busca cuál trae el monto y cuál la descripción.
+    idx_valor, idx_desc = detectar_columnas_extracto(df)
+    if idx_valor is None:
+        st.error("No se encontró ninguna columna con los montos del extracto.")
+        return None, None
+    st.session_state["_info_extracto"] = (idx_valor, idx_desc)
+
     # Excluir filas de saldo que no son transacciones reales
-    desc_raw = df[6].fillna("").astype(str).str.strip().str.upper()
+    desc_raw = df[idx_desc].fillna("").astype(str).str.strip().str.upper()
     mask_saldo = desc_raw.str.startswith("SALDO")
     df = df[~mask_saldo].copy()
 
     # Valor y descripción se filtran con la MISMA máscara: si solo se descartara
     # el valor (p. ej. la fila de encabezados), las descripciones quedarían corridas.
-    col_i    = pd.to_numeric(df[8], errors="coerce")
-    desc_col = df[6].fillna("").astype(str).str.strip()
+    col_i    = pd.to_numeric(df[idx_valor], errors="coerce")
+    desc_col = df[idx_desc].fillna("").astype(str).str.strip()
     mask_num = col_i.notna()
 
     return (col_i[mask_num].reset_index(drop=True),
@@ -192,6 +242,12 @@ def cargar_excel(archivo) -> tuple:
     if col_desc and col_desc not in cols:
         cols.append(col_desc)
 
+    # Fuera las filas de subtotal por cuenta, "Total general" y el pie del reporte:
+    # no son movimientos y podrían coincidir por casualidad con un valor del extracto.
+    primera = df_raw.iloc[header_row + 1:, 0].astype(str).str.strip().str.lower()
+    es_resumen = primera.str.startswith(("cuenta contable", "total", "procesado"))
+    df = df[~es_resumen.reindex(df.index, fill_value=False)]
+
     resultado = df[cols].copy()
     resultado[col_debito]  = pd.to_numeric(resultado[col_debito],  errors="coerce")
     resultado[col_credito] = pd.to_numeric(resultado[col_credito], errors="coerce")
@@ -307,7 +363,7 @@ def comparar(
 
         filas.append(
             {
-                "Valor CSV (Col I)":   val_r,
+                "Valor extracto":   val_r,
                 "Descripción CSV":     desc,
                 f"En {col_debito}":    "Sí" if en_debito  else "No",
                 f"En {col_credito}":   "Sí" if en_credito else "No",
@@ -335,7 +391,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     md('<p class="section-title">[[file-text]] Extracto Bancario (CSV o Excel)</p>', unsafe_allow_html=True)
-    st.caption("Columna I · valores del extracto · acepta CSV, TXT o Excel")
+    st.caption("Detecta solo la columna de montos y la de descripción · acepta CSV, TXT o Excel")
     archivo_csv = st.file_uploader(
         "Subir extracto", type=["csv", "txt", "xlsx", "xls"],
         key="csv", label_visibility="collapsed"
@@ -416,6 +472,11 @@ if archivo_csv and archivo_xlsx:
 
     if serie_csv is None or resultado_excel is None:
         st.stop()
+
+    info = st.session_state.get("_info_extracto")
+    if info and not (es_excel_csv_actual and formato_extracto == "banco"):
+        st.caption(f":material/check_circle: Extracto leído: montos en la columna **{_letra_columna(info[0])}**"
+                   + (f", descripción en la columna **{_letra_columna(info[1])}**." if info[1] is not None else "."))
 
     df_excel, col_debito, col_credito, col_tercero, col_desc = resultado_excel
 
@@ -537,7 +598,7 @@ if archivo_csv and archivo_xlsx:
                     unsafe_allow_html=True)
 
         df_banco = df_resultado[df_resultado["Estado"] == ESTADO_BANCARIO]
-        vals_banco = df_banco["Valor CSV (Col I)"]
+        vals_banco = df_banco["Valor extracto"]
         ext_abonos = round(float(vals_banco[vals_banco > 0].sum()), 2)
         ext_cargos = round(float(-vals_banco[vals_banco < 0].sum()), 2)
 

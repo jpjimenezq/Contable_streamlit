@@ -885,6 +885,9 @@ def generar_hoja_anexo(ws, df_raw_src, titulo, es_pivot=True, grupos_orden=None)
 
         orden_grp = grupos_orden if grupos_orden else list(piv_grp.index)
 
+        # Esquema de Excel: el botón +/− queda en la fila del grupo o de la cuenta (arriba del detalle)
+        ws.sheet_properties.outlinePr.summaryBelow = False
+
         fila = 3
         for grp in orden_grp:
             if grp not in piv_grp.index:
@@ -899,6 +902,7 @@ def generar_hoja_anexo(ws, df_raw_src, titulo, es_pivot=True, grupos_orden=None)
                 fmt_num(cell, bold=True); cell.fill = azul_cla; cell.border = borde_n
             cell = ws.cell(fila, n_cols, tot_g if tot_g != 0 else None)
             fmt_num(cell, bold=True); cell.fill = azul_cla; cell.border = borde_n
+            ws.row_dimensions[fila].collapsed = True
             fila += 1
 
             # ── Filas de cuentas dentro del grupo ──
@@ -915,6 +919,9 @@ def generar_hoja_anexo(ws, df_raw_src, titulo, es_pivot=True, grupos_orden=None)
                     fmt_num(cell); cell.border = borde_n
                 cell = ws.cell(fila, n_cols, tot_c if tot_c != 0 else None)
                 fmt_num(cell); cell.border = borde_n
+                ws.row_dimensions[fila].outlineLevel = 1      # cuenta: nivel 1, contraída
+                ws.row_dimensions[fila].hidden = True
+                ws.row_dimensions[fila].collapsed = True
                 fila += 1
 
                 # ── Filas de terceros dentro de la cuenta ──
@@ -936,6 +943,8 @@ def generar_hoja_anexo(ws, df_raw_src, titulo, es_pivot=True, grupos_orden=None)
                     cell = ws.cell(fila, n_cols, tot_t if tot_t != 0 else None)
                     fmt_num(cell); cell.border = borde_n
                     if fill_t: cell.fill = fill_t
+                    ws.row_dimensions[fila].outlineLevel = 2  # tercero: nivel 2, contraído
+                    ws.row_dimensions[fila].hidden = True
                     fila += 1
 
         ws.freeze_panes = "B3"
@@ -996,7 +1005,7 @@ def generar_hoja_anexo(ws, df_raw_src, titulo, es_pivot=True, grupos_orden=None)
 
 
 def generar_excel_eeff(empresa, nit, periodo, esf, eri, pivot_eri, df_eri_raw, df_esf_raw,
-                       esf_ant=None, eri_ant=None, fechas=None, anios=None, incluir_detalle=True):
+                       esf_ant=None, eri_ant=None, fechas=None, anios=None):
     """esf/eri: resultados de estados.lineas_esf / lineas_eri (con signo de presentación).
        esf_ant/eri_ant: período anterior o None. Hojas en el orden del modelo EEFF."""
     wb = openpyxl.Workbook()
@@ -1013,12 +1022,6 @@ def generar_excel_eeff(empresa, nit, periodo, esf, eri, pivot_eri, df_eri_raw, d
     generar_hoja_er_mensualizado(wb.create_sheet("ER MENSUALIZADO"), empresa, df_eri_raw)
     generar_hoja_consol(wb.create_sheet("CONSOL"), empresa, df_eri_raw)
 
-    if incluir_detalle:
-        generar_hoja_anexo(wb.create_sheet("Detalle ESF"), df_esf_raw,
-                           titulo="DETALLE ESF — MOVIMIENTOS POR TERCERO", es_pivot=False)
-        generar_hoja_anexo(wb.create_sheet("Detalle ERI"), df_eri_raw,
-                           titulo="DETALLE ERI — MOVIMIENTOS POR TERCERO", es_pivot=False)
-
     buf = BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -1027,11 +1030,10 @@ def generar_excel_eeff(empresa, nit, periodo, esf, eri, pivot_eri, df_eri_raw, d
 
 @st.cache_data(show_spinner=False)
 def excel_eeff_en_bytes(empresa, nit, periodo, esf, eri, pivot_eri, df_eri_raw, df_esf_raw,
-                        esf_ant, eri_ant, fechas, anios, incluir_detalle):
+                        esf_ant, eri_ant, fechas, anios):
     """Genera el Excel una sola vez por combinación de datos y opciones (queda en caché)."""
     return generar_excel_eeff(empresa, nit, periodo, esf, eri, pivot_eri, df_eri_raw, df_esf_raw,
-                              esf_ant=esf_ant, eri_ant=eri_ant, fechas=fechas, anios=anios,
-                              incluir_detalle=incluir_detalle).getvalue()
+                              esf_ant=esf_ant, eri_ant=eri_ant, fechas=fechas, anios=anios).getvalue()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1374,8 +1376,6 @@ with tab_exportar:
                      use_container_width=True, hide_index=True, height=370)
 
     md("---")
-    incluir_detalle = st.checkbox("Incluir las hojas «Detalle ESF» y «Detalle ERI»", value=True,
-                                  help="El modelo no las trae. Quítalas si solo quieres las hojas acordadas.")
     if hay_dif:
         st.warning(":material/warning: Hay diferencias sin resolver (ver Validaciones). "
                    "El archivo se genera igual, mostrando los valores tal como se calculan.")
@@ -1384,10 +1384,9 @@ with tab_exportar:
             empresa, nit, periodo, esf_act, eri_act, pivot_eri, df_eri_raw, df_esf_raw,
             esf_ant, eri_ant,
             (E.fecha_corte(mes_corte, anio), E.fecha_corte(mes_corte, anio - 1)),
-            (anio, anio - 1), incluir_detalle)
+            (anio, anio - 1))
     periodo_ant_msg = " (con período anterior)" if esf_ant else ""
-    hojas = "ESF, ANEXO ESF, ERI, ANEXO ERI, ER MENSUALIZADO, CONSOL" + (
-        ", Detalle ESF, Detalle ERI" if incluir_detalle else "")
+    hojas = "ESF, ANEXO ESF, ERI, ANEXO ERI, ER MENSUALIZADO, CONSOL"
     st.success(f":material/check_circle: Archivo listo{periodo_ant_msg} — hojas: {hojas}")
     st.download_button(
         label=":material/download: Descargar EEFF_Formateado.xlsx",
